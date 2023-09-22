@@ -32,6 +32,7 @@ func NewServer(rootDir string) *Server {
 	s.r.Use(cors.New(config))
 
 	s.Handle(http.MethodGet, "/idig", s.ListTrenches)
+	s.Handle(http.MethodGet, "/idig/:project/trenches", s.ListProjectTrenches)
 	s.HandleTrench(http.MethodPost, "/idig/:project/:trench", s.SyncTrench)
 	s.HandleTrench(http.MethodGet, "/idig/:project/:trench/attachments/:name", s.ReadAttachment)
 	s.HandleTrench(http.MethodPut, "/idig/:project/:trench/attachments/:name", s.WriteAttachment)
@@ -169,6 +170,42 @@ func (s *Server) ListTrenches(c *gin.Context) (int, any) {
 	}
 
 	return http.StatusOK, &ListTrenchesResponse{Trenches: trenches}
+}
+
+func (s *Server) ListProjectTrenches(c *gin.Context) (int, any) {
+	var a []string
+	user, password, ok := c.Request.BasicAuth()
+	if !ok {
+		return http.StatusUnauthorized, nil
+	}
+	project := c.Param("project")
+
+	projectDir := filepath.Join(s.RootDir, project)
+	userDB, err := NewUserDB(projectDir)
+	if err != nil {
+		return http.StatusInternalServerError, map[string]string{"error": err.Error()}
+	}
+
+	if !userDB.HasAccess(user, password) {
+		return http.StatusUnauthorized, fmt.Errorf("User unauthorized")
+
+	}
+
+	entries, err := os.ReadDir(projectDir)
+	if err != nil {
+		return http.StatusInternalServerError, fmt.Errorf("Failed to list trenches")
+	}
+
+	for _, f := range entries {
+		if f.IsDir() {
+			fmt.Println(f.Name())
+			if f.Name() != "objects" && f.Name() != "refs" {
+				a = append(a, f.Name())
+			}
+		}
+	}
+
+	return http.StatusOK, a
 }
 
 type SyncRequest struct {
